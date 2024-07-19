@@ -179,9 +179,10 @@ static void do_mini_batch(network* nn, const float* train_data, const int64_t* l
 
     float* delta_mats = malloc(total_neurons * num_samples * sizeof *delta_mats);
     int64_t offset = total_neurons * num_samples;
+    int64_t offset_prev;
     // backpropagation
     for (int64_t l = last; l > 0; l--) {
-        int64_t offset_prev = offset;
+        offset_prev = offset;
         offset -= nn->layer_sizes[l] * num_samples;
         for (int64_t i = 0; i < num_samples; i++) {
             for (int64_t j = 0; j < nn->layer_sizes[l]; j++) {
@@ -204,15 +205,16 @@ static void do_mini_batch(network* nn, const float* train_data, const int64_t* l
     assert(offset == 0);
     // gradient descent
     for (int64_t l = 1; l < nn->num_layers; l++) {
-        int64_t offset_prev = offset;
-        offset += nn->layer_sizes[l] * num_samples;
         for (int64_t j = 0; j < nn->layer_sizes[l]; j++) {
             for (int64_t k = 0; k < nn->layer_sizes[l - 1]; k++) {
                 int64_t w_idx = nn->weight_mat_offsets[l - 1] + j * nn->layer_sizes[l] + k;
                 float w_delta = 0.0f;
                 for (int64_t i = 0; i < num_samples; i++) {
-                    w_delta += sigmoid(z_mats[offset_prev + i * nn->layer_sizes[l - 1] + k]) *
-                               delta_mats[offset + i * nn->layer_sizes[l] + j];
+                    int64_t prev_idx = i * nn->layer_sizes[l - 1] + k;
+                    float kth_a =
+                        l == 1 ? train_data[prev_idx] : sigmoid(z_mats[offset_prev + prev_idx]);
+                    float jth_delta = delta_mats[offset + i * nn->layer_sizes[l] + j];
+                    w_delta += kth_a * jth_delta;
                 }
                 nn->weights[w_idx] -= eta / num_samples * w_delta;
             }
@@ -222,6 +224,8 @@ static void do_mini_batch(network* nn, const float* train_data, const int64_t* l
             }
             nn->biases[j] -= eta / num_samples * b_delta;
         }
+        offset_prev = offset;
+        offset += nn->layer_sizes[l] * num_samples;
     }
 
     free(z_mats);
@@ -292,8 +296,8 @@ static void test_get_z_matrix() {
     network nn;
     nn_init(&nn, 2, (int64_t[]) {2, 2});
 
-    nn.weights = (float[]) {0.5f, 2.0f, 0.25f, 1.0f};
-    nn.biases = (float[]) {-0.25f, -1.0f};
+    memcpy(nn.weights, (float[]) {0.5f, 2.0f, 0.25f, 1.0f}, 2 * 2 * sizeof *nn.weights);
+    memcpy(nn.biases, (float[]) {-0.25f, -1.0f}, 2 * sizeof *nn.biases);
 
     float inputs[] = {1.0f, 2.0f, 2.0f, 4.0f};
     float expected[] = {4.25f, 1.25f, 8.75f, 3.5f};
@@ -304,6 +308,7 @@ static void test_get_z_matrix() {
         passed = passed ? test_float(dest[i], expected[i]) : passed;
     }
     assert(passed);
+    nn_free(&nn);
 }
 
 static void test_feedforward() {
@@ -325,6 +330,7 @@ static void test_feedforward() {
         passed = passed ? test_float(dest[i], expected[i]) : passed;
     }
     assert(passed);
+    nn_free(&nn);
 }
 
 static void test_transpose() {
@@ -342,25 +348,30 @@ static void test_transpose() {
 static void test_do_mini_batch() {
     network nn;
     nn_init(&nn, 2, (int64_t[]) {4, 2});
-    nn.weights = (float[]) {0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f};
-    nn.biases = (float[]) {-1.0f, -2.0f};
 
-    float data[] = {1.0f, 2.0f, 3.0f, 4.0f};
-    int64_t labels[] = {1};
+    memcpy(nn.weights, (float[]) {0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f},
+           4 * 2 * sizeof *nn.weights);
+    memcpy(nn.biases, (float[]) {-1.0f, -2.0f}, 2 * sizeof *nn.biases);
 
-    float expected_w[] = {0.49999917f, 0.99999834f, 1.49999751f, 1.99999667f,
+    float data[] = {
+        1.0f, 2.0f, 3.0f, 4.0f, 1.5f, 2.5f, 3.5f, 4.5f,
+    };
+    int64_t labels[] = {0, 1, 1, 0};
+
+    float expected_w[] = {0.49999958f, 0.99999917f, 1.49999875f, 1.99999834f,
                           2.5f,        3.0f,        3.5f,        4.0f};
-    float expected_b[] = {-1.00000083f, -2.0f};
-    do_mini_batch(&nn, data, labels, 1, 1.0f);
+    float expected_b[] = {-1.00000042f, -2.0f};
+    do_mini_batch(&nn, data, labels, 2, 1.0f);
 
     bool passed = true;
     for (int64_t i = 0; i < 4 * 2; i++) {
-        printf("weight %lld: %f vs %f\n", i, nn.weights[i], expected_w[i]);
+        passed = passed ? test_float(nn.weights[i], expected_w[i]) : passed;
     }
     for (int64_t i = 0; i < 2; i++) {
-        printf("bias %lld: %f vs %f\n", i, nn.biases[i], expected_b[i]);
+        passed = passed ? test_float(nn.biases[i], expected_b[i]) : passed;
     }
     assert(passed);
+    nn_free(&nn);
 }
 
 int main() {
