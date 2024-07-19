@@ -12,7 +12,7 @@ static uint32_t read_be_i32(FILE* file) {
     return num;
 }
 
-int parse_mnist_images(const char* path, float* images, int64_t num_images) {
+int mnist_parse_images(const char* path, float* images, int64_t num_images) {
     FILE* file = fopen(path, "rb");
     if (!file) {
         perror("fopen");
@@ -54,14 +54,14 @@ int parse_mnist_images(const char* path, float* images, int64_t num_images) {
     fclose(file);
 
     for (; images_u8 != images_u8_end; images_u8++, images++) {
-        *images = *images_u8 / 255.f;
+        *images = *images_u8 / 255.0f;
     }
 
     free(images_u8);
     return 0;
 }
 
-int parse_mnist_labels(const char* path, int8_t* labels, int64_t num_labels) {
+int mnist_parse_labels(const char* path, int8_t* labels, int64_t num_labels) {
     FILE* file = fopen(path, "rb");
     if (!file) {
         perror("fopen");
