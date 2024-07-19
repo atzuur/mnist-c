@@ -50,11 +50,11 @@ int mnist_parse_images(const char* path, float* images, int64_t num_images) {
         fclose(file);
         return 1;
     }
-    uint8_t* images_u8_end = images_u8 + fread(images_u8, 1, images_size, file) + 1;
+    uint8_t* images_u8_end = images_u8 + fread(images_u8, 1, images_size, file);
     fclose(file);
 
-    for (; images_u8 != images_u8_end; images_u8++, images++) {
-        *images = *images_u8 / 255.0f;
+    for (uint8_t* im_u8_it = images_u8; im_u8_it != images_u8_end; im_u8_it++, images++) {
+        *images = *im_u8_it / 255.0f;
     }
 
     free(images_u8);

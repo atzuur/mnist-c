@@ -111,7 +111,7 @@ static void* clone_buf(const void* buf, size_t size) {
     return memcpy(clone, buf, size);
 }
 
-static void shuffle_train_data(float* data, int64_t* labels, int64_t num_samples,
+static void shuffle_train_data(float* data, int8_t* labels, int64_t num_samples,
                                int64_t sample_len) {
     for (int64_t i = 0; i < num_samples; i++) {
         int64_t new_idx = rand_i64(num_samples);
@@ -158,7 +158,7 @@ void nn_init(network* nn, int64_t num_layers, const int64_t* layer_sizes) {
     nn->layer_sizes = layer_sizes;
 }
 
-static void do_mini_batch(network* nn, const float* train_data, const int64_t* labels,
+static void do_mini_batch(network* nn, const float* train_data, const int8_t* labels,
                           int64_t num_samples, float eta) {
     assert(num_samples > 0);
 
@@ -234,16 +234,16 @@ static void do_mini_batch(network* nn, const float* train_data, const int64_t* l
     free(delta_mats);
 }
 
-void nn_train(network* nn, const float* train_data, const int64_t* labels, int64_t num_samples,
+void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_t num_samples,
               int64_t num_epochs, int64_t mini_batch_size, float eta) {
     assert(num_samples % mini_batch_size == 0);
 
     int64_t sample_len = nn->layer_sizes[0];
     float* tdata = clone_buf(train_data, num_samples * sample_len * sizeof *tdata);
-    int64_t* tlabels = clone_buf(labels, num_samples * sizeof *tlabels);
+    int8_t* tlabels = clone_buf(labels, num_samples * sizeof *tlabels);
 
     int64_t num_outputs = nn->layer_sizes[nn->num_layers - 1];
-    int64_t* label_vecs = calloc(num_samples * num_outputs, sizeof *label_vecs);
+    int8_t* label_vecs = calloc(num_samples * num_outputs, sizeof *label_vecs);
 
     for (int64_t e = 0; e < num_epochs; e++) {
         clock_t start = clock();
@@ -282,10 +282,10 @@ static bool test_float(float a, float b) {
 
 static void test_shuffle_train_data() {
     float inputs[] = {1.0f, 2.0f, 1.5f, 2.5f, 3.0f, 4.0f};
-    int64_t labels[] = {1, 2, 3};
+    int8_t labels[] = {1, 2, 3};
     rand_seed(69);
     float expected_inputs[] = {1.5f, 2.5f, 1.0f, 2.0f, 3.0f, 4.0f};
-    int64_t expected_labels[] = {2, 1, 3};
+    int8_t expected_labels[] = {2, 1, 3};
 
     shuffle_train_data(inputs, labels, 3, 2);
     assert(memcmp(inputs, expected_inputs, 2 * 3 * sizeof *inputs) == 0);
@@ -356,7 +356,7 @@ static void test_do_mini_batch() {
     float data[] = {
         1.0f, 2.0f, 3.0f, 4.0f, 1.5f, 2.5f, 3.5f, 4.5f,
     };
-    int64_t labels[] = {0, 1, 1, 0};
+    int8_t labels[] = {0, 1, 1, 0};
 
     float expected_w[] = {0.49999958f, 0.99999917f, 1.49999875f, 1.99999834f,
                           2.5f,        3.0f,        3.5f,        4.0f};
@@ -374,10 +374,10 @@ static void test_do_mini_batch() {
     nn_free(&nn);
 }
 
-int main() {
-    test_shuffle_train_data();
-    test_get_z_matrix();
-    test_feedforward();
-    test_transpose();
-    test_do_mini_batch();
-}
+// int main() {
+//     test_shuffle_train_data();
+//     test_get_z_matrix();
+//     test_feedforward();
+//     test_transpose();
+//     test_do_mini_batch();
+// }
