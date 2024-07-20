@@ -1,4 +1,5 @@
 #include "mnist.h"
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,7 +7,7 @@
 static uint32_t read_be_i32(FILE* file) {
     uint32_t num;
     fread(&num, sizeof num, 1, file);
-#ifndef BIG_ENDIAN
+#ifndef MNIST_BIG_ENDIAN
     num = __builtin_bswap32(num);
 #endif
     return num;
@@ -32,7 +33,7 @@ int mnist_parse_images(const char* path, float* images, int64_t num_images) {
     }
 
     if (dims[0] < num_images) {
-        printf("not enough images; found %u, expected %lld\n", dims[0], num_images);
+        printf("not enough images; found %u, expected %" PRId64 "\n", dims[0], num_images);
         fclose(file);
         return 1;
     }
@@ -77,7 +78,7 @@ int mnist_parse_labels(const char* path, int8_t* labels, int64_t num_labels) {
 
     uint32_t num_labels_file = read_be_i32(file);
     if (num_labels_file < num_labels) {
-        printf("not enough labels; found %u, expected %lld\n", num_labels_file, num_labels);
+        printf("not enough labels; found %u, expected %" PRId64 "\n", num_labels_file, num_labels);
         fclose(file);
         return 1;
     }

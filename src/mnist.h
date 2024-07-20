@@ -5,7 +5,7 @@
 
 #if defined __BYTE_ORDER__
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define BIG_ENDIAN
+#define MNIST_BIG_ENDIAN
 #endif
 #else
 #error "please define the macro __BYTE_ORDER__"
