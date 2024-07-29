@@ -16,7 +16,8 @@ typedef struct network {
 } network;
 
 void nn_init(network* nn, int64_t num_layers, const int64_t* layer_sizes);
+void nn_free(network* nn);
+
 void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_t num_samples,
               int64_t num_epochs, int64_t mini_batch_size, float eta);
-
-void nn_free(network* nn);
+int64_t nn_evaluate(network* nn, const float* test_data, const int8_t* labels, int64_t num_samples);

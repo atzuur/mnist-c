@@ -39,7 +39,19 @@ static float rand_float() {
 }
 
 static int64_t rand_i64(int64_t max) {
-    return xorshift_star() / (UINT64_MAX / (max + 1));
+    assert(max > 0);
+    uint64_t mask = max;
+    mask |= mask >> 1;
+    mask |= mask >> 2;
+    mask |= mask >> 4;
+    mask |= mask >> 8;
+    mask |= mask >> 16;
+    mask |= mask >> 32;
+
+    int64_t value;
+    while ((value = xorshift_star() & mask) > max)
+        ;
+    return value;
 }
 
 static float dot(const float* u, const float* v, int64_t len) {
@@ -113,10 +125,10 @@ static void* clone_buf(const void* buf, size_t size) {
 
 static void shuffle_train_data(float* data, int8_t* labels, int64_t num_samples,
                                int64_t sample_len) {
-    for (int64_t i = 0; i < num_samples; i++) {
-        int64_t new_idx = rand_i64(num_samples);
-        swap(labels + i, labels + new_idx, sizeof *labels);
-        swap(data + sample_len * i, data + sample_len * new_idx, sizeof *data * sample_len);
+    for (int64_t i = num_samples - 1; i > 0; i--) {
+        int64_t j = rand_i64(i);
+        swap(labels + i, labels + j, sizeof *labels);
+        swap(data + sample_len * i, data + sample_len * j, sizeof *data * sample_len);
     }
 }
 
@@ -128,8 +140,20 @@ static void transpose(float* dest, const float* src, int64_t num_rows, int64_t n
     }
 }
 
+static int64_t argmax(const float* input, int64_t len) {
+    assert(len >= 1);
+    int64_t max = 0;
+    for (int64_t i = 0; i < len; i++) {
+        if (input[i] > input[max]) {
+            max = i;
+        }
+    }
+    return max;
+}
+
 void nn_init(network* nn, int64_t num_layers, const int64_t* layer_sizes) {
     assert(num_layers >= 2);
+    rand_seed(time(NULL));
 
     nn->num_weights = 0;
     nn->num_biases = 0;
@@ -207,7 +231,7 @@ static void do_mini_batch(network* nn, const float* train_data, const int8_t* la
     for (int64_t l = 1; l < nn->num_layers; l++) {
         for (int64_t j = 0; j < nn->layer_sizes[l]; j++) {
             for (int64_t k = 0; k < nn->layer_sizes[l - 1]; k++) {
-                int64_t w_idx = nn->weight_mat_offsets[l - 1] + j * nn->layer_sizes[l] + k;
+                int64_t w_idx = nn->weight_mat_offsets[l - 1] + j * nn->layer_sizes[l - 1] + k;
                 float w_delta = 0.0f;
                 for (int64_t i = 0; i < num_samples; i++) {
                     int64_t prev_idx = i * nn->layer_sizes[l - 1] + k;
@@ -248,22 +272,36 @@ void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_
     for (int64_t e = 0; e < num_epochs; e++) {
         clock_t start = clock();
         shuffle_train_data(tdata, tlabels, num_samples, sample_len);
+        memset(label_vecs, 0, num_samples * num_outputs * sizeof *label_vecs);
         for (int64_t i = 0; i < num_samples; i++) {
             label_vecs[i * num_outputs + tlabels[i]] = 1;
         }
-        double shuffle_time = (double)(clock() - start) / CLOCKS_PER_SEC;
         for (int64_t m = 0; m < num_samples; m += mini_batch_size) {
             do_mini_batch(nn, tdata + m * sample_len, label_vecs + m * num_outputs, mini_batch_size,
                           eta);
         }
         double total_time = (double)(clock() - start) / CLOCKS_PER_SEC;
-        printf("epoch %" PRId64 " took %.2lfs (of which %.2lfs shuffling)\n", e + 1, total_time,
-               shuffle_time);
-        fflush(stdout);
+        printf("epoch %" PRId64 " took %.2lfs\n", e + 1, total_time);
     }
 
     free(tdata);
     free(tlabels);
+    free(label_vecs);
+}
+
+int64_t nn_evaluate(network* nn, const float* test_data, const int8_t* labels,
+                    int64_t num_samples) {
+    int64_t output_len = nn->layer_sizes[nn->num_layers - 1];
+    float* output = malloc(output_len * num_samples * sizeof *output);
+    feedforward(nn, output, NULL, test_data, num_samples);
+
+    int64_t correct = 0;
+    for (int64_t i = 0; i < num_samples; i++) {
+        int64_t pred = argmax(output + i * output_len, output_len);
+        correct += pred == labels[i];
+    }
+    free(output);
+    return correct;
 }
 
 void nn_free(network* nn) {
@@ -272,118 +310,3 @@ void nn_free(network* nn) {
     free(nn->weight_mat_offsets);
     free(nn->bias_vec_offsets);
 }
-
-static bool test_float(float a, float b) {
-    if (fabsf(a - b) > FLT_EPSILON) {
-        printf("mismatch: %f != %f\n", a, b);
-        return false;
-    }
-    return true;
-}
-
-static void test_shuffle_train_data() {
-    float inputs[] = {1.0f, 2.0f, 1.5f, 2.5f, 3.0f, 4.0f};
-    int8_t labels[] = {1, 2, 3};
-    rand_seed(69);
-    float expected_inputs[] = {1.5f, 2.5f, 1.0f, 2.0f, 3.0f, 4.0f};
-    int8_t expected_labels[] = {2, 1, 3};
-
-    shuffle_train_data(inputs, labels, 3, 2);
-    assert(memcmp(inputs, expected_inputs, 2 * 3 * sizeof *inputs) == 0);
-    assert(memcmp(labels, expected_labels, 3 * sizeof *labels) == 0);
-}
-
-static void test_get_z_matrix() {
-    network nn;
-    nn_init(&nn, 2, (int64_t[]) {2, 2});
-
-    memcpy(nn.weights, (float[]) {0.5f, 2.0f, 0.25f, 1.0f}, 2 * 2 * sizeof *nn.weights);
-    memcpy(nn.biases, (float[]) {-0.25f, -1.0f}, 2 * sizeof *nn.biases);
-
-    float inputs[] = {1.0f, 2.0f, 2.0f, 4.0f};
-    float expected[] = {4.25f, 1.25f, 8.75f, 3.5f};
-    float dest[4];
-    get_z_matrix(&nn, dest, 1, inputs, 2);
-    bool passed = true;
-    for (int64_t i = 0; i < 4; i++) {
-        passed = passed ? test_float(dest[i], expected[i]) : passed;
-    }
-    assert(passed);
-    nn_free(&nn);
-}
-
-static void test_feedforward() {
-    rand_seed(420);
-
-    network nn;
-    nn_init(&nn, 4, (int64_t[]) {8, 4, 4, 2});
-
-    float inputs[2 * 8];
-    for (int64_t i = 0; i < 2 * 8; i++) {
-        inputs[i] = rand_float();
-    }
-
-    float expected[] = {0.25896616f, 0.362451f, 0.23493582f, 0.36595363f};
-    float dest[4];
-    feedforward(&nn, dest, NULL, inputs, 2);
-    bool passed = true;
-    for (int64_t i = 0; i < 4; i++) {
-        passed = passed ? test_float(dest[i], expected[i]) : passed;
-    }
-    assert(passed);
-    nn_free(&nn);
-}
-
-static void test_transpose() {
-    float src[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
-    float dest[9];
-    float expected[] = {1.0f, 5.0f, 2.0f, 6.0f, 3.0f, 7.0f, 4.0f, 8.0f};
-    transpose(dest, src, 2, 4);
-    bool passed = true;
-    for (int64_t i = 0; i < 8; i++) {
-        passed = passed ? dest[i] == expected[i] : passed;
-    }
-    assert(passed);
-}
-
-static void test_do_mini_batch() {
-    network nn;
-    nn_init(&nn, 3, (int64_t[]) {4, 4, 2});
-
-    memcpy(nn.weights,
-           (float[]) {1.0f,  2.0f,  3.0f,  4.0f,  5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f,
-                      13.0f, 14.0f, 15.0f, 16.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f,  7.0f,  8.0f},
-           (4 * 4 + 2 * 4) * sizeof *nn.weights);
-    memcpy(nn.biases, (float[]) {-1.5f, -0.5f, 0.5f, 1.5f, -2.0f, -1.0f},
-           (4 + 2) * sizeof *nn.biases);
-
-    float data[] = {
-        1.0f, 2.0f, 3.0f, 4.0f, 1.5f, 2.5f, 3.5f, 4.5f,
-    };
-    int8_t labels[] = {0, 1, 1, 0};
-
-    float expected_w[] = {1.0f,        2.0f,        3.0f,  4.0f,  5.0f,        6.0f,
-                          7.0f,        8.0f,        9.0f,  10.0f, 11.0f,       12.0f,
-                          13.0f,       14.0f,       15.0f, 16.0f, 0.99983249f, 1.99983249f,
-                          2.99983249f, 3.99983249f, 5.0f,  6.0f,  7.0f,        8.0f};
-    float expected_b[] = {-1.5f, -0.5f, 0.5f, 1.5f, -2.00016751f, -1.0f};
-    do_mini_batch(&nn, data, labels, 2, 1.0f);
-
-    bool passed = true;
-    for (int64_t i = 0; i < 4 * 4 + 2 * 4; i++) {
-        passed = passed ? test_float(nn.weights[i], expected_w[i]) : passed;
-    }
-    for (int64_t i = 0; i < 4 + 2; i++) {
-        passed = passed ? test_float(nn.biases[i], expected_b[i]) : passed;
-    }
-    assert(passed);
-    nn_free(&nn);
-}
-
-// int main() {
-//     test_shuffle_train_data();
-//     test_get_z_matrix();
-//     test_feedforward();
-//     test_transpose();
-//     test_do_mini_batch();
-// }

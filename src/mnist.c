@@ -6,7 +6,10 @@
 
 static uint32_t read_be_i32(FILE* file) {
     uint32_t num;
-    fread(&num, sizeof num, 1, file);
+    if (fread(&num, sizeof num, 1, file) != 1) {
+        perror("fread");
+        return 0;
+    }
 #ifndef MNIST_BIG_ENDIAN
     num = __builtin_bswap32(num);
 #endif
@@ -51,11 +54,15 @@ int mnist_parse_images(const char* path, float* images, int64_t num_images) {
         fclose(file);
         return 1;
     }
-    uint8_t* images_u8_end = images_u8 + fread(images_u8, 1, images_size, file);
+
+    if (fread(images_u8, 1, images_size, file) != (size_t)images_size) {
+        perror("fread");
+        return 1;
+    }
     fclose(file);
 
-    for (uint8_t* im_u8_it = images_u8; im_u8_it != images_u8_end; im_u8_it++, images++) {
-        *images = *im_u8_it / 255.0f;
+    for (int64_t i = 0; i < images_size; i++) {
+        images[i] = images_u8[i] / 255.0f;
     }
 
     free(images_u8);
@@ -83,8 +90,11 @@ int mnist_parse_labels(const char* path, int8_t* labels, int64_t num_labels) {
         return 1;
     }
 
-    fread(labels, 1, num_labels, file);
-    fclose(file);
+    if (fread(labels, 1, num_labels, file) != (size_t)num_labels) {
+        perror("fread");
+        return 1;
+    }
 
+    fclose(file);
     return 0;
 }
