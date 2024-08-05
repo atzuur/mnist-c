@@ -80,12 +80,12 @@ static void get_z_matrix(network* nn, float* dest, int64_t layer, const float* i
     }
 }
 
-static void feedforward(network* nn, float* output, float* z_output, const float* input,
-                        int64_t num_inputs) {
+void nn_feedforward(network* nn, float* output, float* z_output, const float* input,
+                    int64_t num_inputs) {
     // cast so `free(prev_layer)` is allowed, which is never done when `prev_layer == input`
     float* prev_layer = (float*)input;
     int64_t z_out_offset = 0;
-    int64_t layer_size;
+    int64_t layer_size = 0;
     for (int l = 1; l < nn->num_layers; l++) {
         layer_size = num_inputs * nn->layer_sizes[l];
         float* layer = malloc(layer_size * sizeof *layer);
@@ -151,7 +151,7 @@ static int64_t argmax(const float* input, int64_t len) {
     return max;
 }
 
-void nn_init(network* nn, int64_t num_layers, const int64_t* layer_sizes) {
+void nn_init(network* nn, int64_t num_layers, int64_t* layer_sizes) {
     assert(num_layers >= 2);
     rand_seed(time(NULL));
 
@@ -191,7 +191,7 @@ static void do_mini_batch(network* nn, const float* train_data, const int8_t* la
 
     float* z_mats = malloc(total_neurons * num_samples * sizeof *z_mats);
     float* a_last = malloc(nn->layer_sizes[last] * num_samples * sizeof *a_last);
-    feedforward(nn, a_last, z_mats, train_data, num_samples);
+    nn_feedforward(nn, a_last, z_mats, train_data, num_samples);
 
     int64_t first_weights_size = nn->layer_sizes[0] * nn->layer_sizes[1];
     float* bp_weights = malloc((nn->num_weights - first_weights_size) * sizeof *bp_weights);
@@ -269,8 +269,8 @@ void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_
     int64_t num_outputs = nn->layer_sizes[nn->num_layers - 1];
     int8_t* label_vecs = calloc(num_samples * num_outputs, sizeof *label_vecs);
 
-    for (int64_t e = 0; e < num_epochs; e++) {
-        clock_t start = clock();
+    clock_t start = clock();
+    for (int64_t e = 1; e < num_epochs + 1; e++) {
         shuffle_train_data(tdata, tlabels, num_samples, sample_len);
         memset(label_vecs, 0, num_samples * num_outputs * sizeof *label_vecs);
         for (int64_t i = 0; i < num_samples; i++) {
@@ -281,8 +281,9 @@ void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_
                           eta);
         }
         double total_time = (double)(clock() - start) / CLOCKS_PER_SEC;
-        printf("epoch %" PRId64 " took %.2lfs\n", e + 1, total_time);
+        printf("epoch %" PRId64 ", avg. epoch time: %.2lfs\r", e, total_time / e);
     }
+    puts("");
 
     free(tdata);
     free(tlabels);
@@ -293,7 +294,7 @@ int64_t nn_evaluate(network* nn, const float* test_data, const int8_t* labels,
                     int64_t num_samples) {
     int64_t output_len = nn->layer_sizes[nn->num_layers - 1];
     float* output = malloc(output_len * num_samples * sizeof *output);
-    feedforward(nn, output, NULL, test_data, num_samples);
+    nn_feedforward(nn, output, NULL, test_data, num_samples);
 
     int64_t correct = 0;
     for (int64_t i = 0; i < num_samples; i++) {
@@ -302,6 +303,44 @@ int64_t nn_evaluate(network* nn, const float* test_data, const int8_t* labels,
     }
     free(output);
     return correct;
+}
+
+int nn_save(network* nn, const char* path) {
+    FILE* file = fopen(path, "wb");
+    if (!file) {
+        perror("fopen");
+        return 1;
+    }
+
+    if (fwrite(&nn->num_layers, sizeof(int64_t), 1, file) != 1 ||
+        fwrite(nn->layer_sizes, sizeof(int64_t), nn->num_layers, file) != (size_t)nn->num_layers ||
+        fwrite(nn->weights, sizeof(float), nn->num_weights, file) != (size_t)nn->num_weights ||
+        fwrite(nn->biases, sizeof(float), nn->num_biases, file) != (size_t)nn->num_biases) {
+        perror("fwrite");
+        return 1;
+    }
+
+    fclose(file);
+    return 0;
+}
+
+int nn_load(network* nn, const char* path) {
+    FILE* file = fopen(path, "rb");
+    if (!file) {
+        perror("fopen");
+        return 1;
+    }
+
+    if (fread(&nn->num_layers, sizeof(int64_t), 1, file) != 1 ||
+        fread(nn->layer_sizes, sizeof(int64_t), nn->num_layers, file) != (size_t)nn->num_layers ||
+        fread(nn->weights, sizeof(float), nn->num_weights, file) != (size_t)nn->num_weights ||
+        fread(nn->biases, sizeof(float), nn->num_biases, file) != (size_t)nn->num_biases) {
+        perror("fread");
+        return 1;
+    }
+
+    fclose(file);
+    return 0;
 }
 
 void nn_free(network* nn) {
