@@ -18,10 +18,6 @@ static float d_sigmoid(float x) {
     return sigmoid(x) * (1.0f - sigmoid(x));
 }
 
-static float d_quadr_cost(float a, int64_t y) {
-    return a - (float)y;
-}
-
 static uint64_t x = 0;
 static void rand_seed(uint64_t seed) {
     x = seed;
@@ -213,7 +209,7 @@ static void do_mini_batch(network* nn, const float* train_data, const int8_t* la
                 int64_t idx = i * nn->layer_sizes[l] + j;
                 float del;
                 if (l == last) {
-                    del = d_quadr_cost(a_last[idx], labels[idx]) * d_sigmoid(z_mats[offset + idx]);
+                    del = (a_last[idx] - labels[idx]) * d_sigmoid(z_mats[offset + idx]);
                 } else {
                     float* w_mat_lp1 = bp_weights + nn->weight_mat_offsets[l] - first_weights_size;
                     float* jth_weight_col = w_mat_lp1 + j * nn->layer_sizes[l + 1];
@@ -282,6 +278,7 @@ void nn_train(network* nn, const float* train_data, const int8_t* labels, int64_
         }
         double total_time = (double)(clock() - start) / CLOCKS_PER_SEC;
         printf("epoch %" PRId64 ", avg. epoch time: %.2lfs\r", e, total_time / e);
+        fflush(stdout);
     }
     puts("");
 
