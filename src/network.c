@@ -10,9 +10,15 @@
 #include <string.h>
 #include <time.h>
 
-static float sigmoid(float x) {
+#pragma float_control(precise, on, push)
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((optimize("no-finite-math-only")))
+#endif
+static float
+sigmoid(float x) {
     return 1.0f / (expf(-x) + 1);
 }
+#pragma float_control(pop)
 
 static float d_sigmoid(float x) {
     return sigmoid(x) * (1.0f - sigmoid(x));

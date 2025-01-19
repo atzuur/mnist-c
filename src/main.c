@@ -58,9 +58,11 @@ static int test_mnist(network* nn, const char* image) {
     }
 
     float* image_data = malloc(nn->layer_sizes[0] * sizeof *image_data);
-    if (fread(image_data, sizeof *image_data, MNIST_SAMPLE_LEN, image_file) !=
-        (size_t)MNIST_SAMPLE_LEN) {
+    int64_t n_read = fread(image_data, sizeof *image_data, MNIST_SAMPLE_LEN, image_file);
+    if (n_read != MNIST_SAMPLE_LEN) {
         free(image_data);
+        printf("expected %" PRId64 " bytes in image, got %" PRId64 "\n",
+               MNIST_SAMPLE_LEN * sizeof *image_data, n_read * sizeof *image_data);
         perror("fread");
         return 1;
     }
@@ -91,12 +93,12 @@ int main(int argc, const char** argv) {
     }
 
     network nn;
-    int64_t layer_sizes[] = {MNIST_SAMPLE_LEN, 50, 40, 10};
+    int64_t layer_sizes[] = {MNIST_SAMPLE_LEN, 64, 32, 10};
     nn_init(&nn, 4, layer_sizes);
 
     int ret;
     if (strcmp(argv[1], "train") == 0) {
-        ret = train_mnist(&nn, 30, 10, 3.0f);
+        ret = train_mnist(&nn, 30, 8, 3.0f);
     } else {
         ret = test_mnist(&nn, argv[1]);
     }
