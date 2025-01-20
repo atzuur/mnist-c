@@ -28,3 +28,6 @@ ffmpeg -v error -i YOUR_IMAGE.png -pix_fmt grayf32 -f rawvideo YOUR_IMAGE
 ```sh
 ./a.exe YOUR_IMAGE
 ```
+
+## References
+- *Michael A. Nielsen*, **‘Neural Networks and Deep Learning’**. Determination Press, 2015, http://neuralnetworksanddeeplearning.com/.
